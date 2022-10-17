@@ -134,3 +134,11 @@ memcpy(void *dst, const void *src, uint n)
 {
   return memmove(dst, src, n);
 }
+
+int thread_create(void (*start_routine)(void *, void *), void *arg1, void *arg2) {
+  return clone(start_routine, arg1, arg2, 0);
+}
+
+int thread_join() {
+  return join(0);
+}
