@@ -81,6 +81,7 @@ struct trapframe {
 };
 
 enum procstate { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
+enum proctype { THREAD };
 
 // Per-process state
 struct proc {
@@ -104,4 +105,5 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   uint64 trap_va;              // trapframe va for threads
+  enum proctype type;          // indicate weather current structu proc is thread or process
 };

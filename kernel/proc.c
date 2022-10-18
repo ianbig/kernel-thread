@@ -126,6 +126,38 @@ found:
   return p;
 }
 
+static struct proc*
+allocthread(void) {
+  struct proc * p;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if(p->state == UNUSED) {
+      goto found;
+    } else {
+      release(&p->lock);
+    }
+  }
+
+  return 0;
+
+
+found:
+  p->pid = allocpid();
+  p->type = THREAD;
+  // Allocate a trapframe page.
+  if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+    release(&p->lock);
+    return 0;
+  }
+
+  // TODO: trampling va to pa mapping
+  memset(&p->context, 0, sizeof(p->context));
+  p->context.ra = (uint64)forkret;
+  p->context.sp = p->kstack + PGSIZE;
+
+  return p;
+}
+
 // free a proc structure and the data hanging from it,
 // including user pages.
 // p->lock must be held.
@@ -693,6 +725,13 @@ procdump(void)
 
 
 int clone(void(*fcn)(void*, void*), void *arg1, void *arg2, void *stack) {
+  struct proc * new_thread;
+  struct proc *p = myproc();
+  if ((new_thread = allocthread()) == 0) {
+    return -1;
+  }
+  
+  new_thread->pagetable = p->pagetable;
   return 0;
 }
 
