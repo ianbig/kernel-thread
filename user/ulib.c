@@ -136,7 +136,8 @@ memcpy(void *dst, const void *src, uint n)
 }
 
 int thread_create(void (*start_routine)(void *, void *), void *arg1, void *arg2) {
-  return clone(start_routine, arg1, arg2, 0);
+  void * stack = malloc(4096);
+  return clone(start_routine, arg1, arg2, stack);
 }
 
 int thread_join() {

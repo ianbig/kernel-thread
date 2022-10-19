@@ -144,13 +144,12 @@ allocthread(void) {
 found:
   p->pid = allocpid();
   p->type = THREAD;
-  // Allocate a trapframe page.
+
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     release(&p->lock);
     return 0;
   }
-
-  // TODO: trampling va to pa mapping
+  
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
@@ -723,7 +722,16 @@ procdump(void)
   }
 }
 
+/**
+ * This call creates a new kernel thread which shares the calling process’s address space.
+ * Input parameters:
+  fcn - the new thread will starts to execute fcn, which is similar to the signal handler in alarm lab.
+  arg1 and arg2 - additionally, we allow the calling process to pass two arguments (arg1 and arg2) to the thread. So that the thread can use these two arguments in its routine (i.e., fcn).
+  stack - each thread should have its own userspace stack, we require the calling process to provide a page of memory (stack) when creating this thread. This stack should points to a valid userspace memory with at least 1 page as its size, and it should also be page aligned.
+  Return value:
 
+  return the thread’s id on success. -1 on failure. 
+*/
 int clone(void(*fcn)(void*, void*), void *arg1, void *arg2, void *stack) {
   struct proc * new_thread;
   struct proc *p = myproc();
@@ -731,8 +739,23 @@ int clone(void(*fcn)(void*, void*), void *arg1, void *arg2, void *stack) {
     return -1;
   }
   
+  // new_thread->parent = p;
+  *(new_thread->trapframe) = *(p->trapframe);
+  new_thread->trapframe->epc = (uint64)fcn;
+  new_thread->trapframe->sp = (uint64)stack; // TODO: align the stack
+  new_thread->trapframe->a0 = (uint64)arg1;
+  new_thread->trapframe->a1 = (uint64)arg2;
+
   new_thread->pagetable = p->pagetable;
-  return 0;
+  uint64 va = TRAPFRAME - PGSIZE;
+  while (kwalkaddr(new_thread->pagetable, va)) {
+    va = va - PGSIZE;
+  }
+
+  new_thread->trap_va = va;
+  mappages(new_thread->pagetable, new_thread->trap_va, PGSIZE, (uint64)new_thread->trapframe, PTE_R | PTE_W);
+  release(&new_thread->lock);
+  return new_thread->pid;
 }
 
 int join(void ** stack) {
