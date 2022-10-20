@@ -162,13 +162,15 @@ found:
 // p->lock must be held.
 static void
 freeproc(struct proc *p)
-{
+{ 
+  if (p->type != THREAD && p->pagetable) {
+    proc_freepagetable(p->pagetable, p->sz);
+    p->pagetable = 0;
+  }
+
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
-  if(p->pagetable)
-    proc_freepagetable(p->pagetable, p->sz);
-  p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -742,9 +744,12 @@ int clone(void(*fcn)(void*, void*), void *arg1, void *arg2, void *stack) {
   // new_thread->parent = p;
   *(new_thread->trapframe) = *(p->trapframe);
   new_thread->trapframe->epc = (uint64)fcn;
-  new_thread->trapframe->sp = (uint64)stack; // TODO: align the stack
+  new_thread->trapframe->sp = (uint64)stack;
   new_thread->trapframe->a0 = (uint64)arg1;
   new_thread->trapframe->a1 = (uint64)arg2;
+
+  // TODO: add proc->sz to new_thread->proc
+  new_thread->parent = p->parent;
 
   new_thread->pagetable = p->pagetable;
   uint64 va = TRAPFRAME - PGSIZE;
