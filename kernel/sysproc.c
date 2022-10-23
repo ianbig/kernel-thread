@@ -115,5 +115,6 @@ uint64
 sys_join(void) {
   uint64 stack = 0;
   argaddr(0, &stack);
-  return join((void**)stack);
+  uint64 pid = join((void**)stack);
+  return pid;
 }

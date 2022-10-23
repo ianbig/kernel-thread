@@ -12,7 +12,9 @@
         "riscv.h": "c",
         "user.h": "c",
         "cstdlib": "c",
-        "new": "c"
+        "new": "c",
+        "__mutex_base": "c",
+        "atomic": "c"
     },
     "C_Cpp.default.configurationProvider": "ms-vscode.makefile-tools"
 }

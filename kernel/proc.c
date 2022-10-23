@@ -107,6 +107,7 @@ allocproc(void)
 
 found:
   p->pid = allocpid();
+  p->type = PROCESS;
 
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
@@ -163,14 +164,35 @@ found:
 static void
 freeproc(struct proc *p)
 { 
-  if (p->type != THREAD && p->pagetable) {
-    proc_freepagetable(p->pagetable, p->sz);
-    p->pagetable = 0;
-  }
+  // if (p->type == THREAD) {
+  //   uvmunmap(p->pagetable, p->trap_va, PGSIZE, 0);
+  //   p->trap_va = 0;
+  // }
+
+  // if(p->trapframe)
+  //   kfree((void*)p->trapframe);
+  // p->trapframe = 0;
+
+  // if(p->pagetable && p->type == PROCESS) {
+  //   proc_freepagetable(p->pagetable, p->sz);
+  //   p->pagetable = 0;
+  // }
+
+  // p->sz = 0;
+  // p->pid = 0;
+  // p->parent = 0;
+  // p->name[0] = 0;
+  // p->chan = 0;
+  // p->killed = 0;
+  // p->xstate = 0;
+  // p->state = UNUSED;
 
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if(p->pagetable)
+    proc_freepagetable(p->pagetable, p->sz);
+  p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -262,15 +284,26 @@ growproc(int n)
   uint sz;
   struct proc *p = myproc();
 
+  acquire(&p->lock);
   sz = p->sz;
   if(n > 0){
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+      release(&p->lock);
       return -1;
     }
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
   p->sz = sz;
+
+  struct proc *np;
+  for (np = proc; np < &proc[NPROC]; np++) {
+    // TODO: understand what is going on here
+    // acquire(&np->lock);
+    np->sz = sz;
+    // release(&np->lock);
+  }
+  release(&p->lock);
   return 0;
 }
 
@@ -430,6 +463,7 @@ wait(uint64 addr)
     // Scan through table looking for exited children.
     havekids = 0;
     for(np = proc; np < &proc[NPROC]; np++){
+      // if (np->type != PROCESS) continue; // TODO: uncomment this
       // this code uses np->parent without holding np->lock.
       // acquiring the lock first would cause a deadlock,
       // since np might be an ancestor, and we already hold p->lock.
@@ -737,32 +771,81 @@ procdump(void)
 int clone(void(*fcn)(void*, void*), void *arg1, void *arg2, void *stack) {
   struct proc * new_thread;
   struct proc *p = myproc();
+
   if ((new_thread = allocthread()) == 0) {
     return -1;
   }
+
+  new_thread->pagetable = p->pagetable;
+  new_thread->sz = p->sz;
+  new_thread->trap_va = TRAPFRAME;
+  while (kwalkaddr(new_thread->pagetable, new_thread->trap_va)) {
+    new_thread->trap_va -= PGSIZE;
+  }
+  mappages(new_thread->pagetable, new_thread->trap_va, PGSIZE, 
+          (uint64)(new_thread->trapframe), PTE_R | PTE_W);
+  // printf("trapframe: %x\n", new_thread->trapframe);
+  new_thread->parent = p;
   
-  // new_thread->parent = p;
   *(new_thread->trapframe) = *(p->trapframe);
   new_thread->trapframe->epc = (uint64)fcn;
-  new_thread->trapframe->sp = (uint64)stack;
+  new_thread->trapframe->sp = PGROUNDDOWN((uint64)stack);
   new_thread->trapframe->a0 = (uint64)arg1;
   new_thread->trapframe->a1 = (uint64)arg2;
 
-  // TODO: add proc->sz to new_thread->proc
-  new_thread->parent = p->parent;
+  new_thread->user_passin_stack = stack;
 
-  new_thread->pagetable = p->pagetable;
-  uint64 va = TRAPFRAME - PGSIZE;
-  while (kwalkaddr(new_thread->pagetable, va)) {
-    va = va - PGSIZE;
-  }
+  for(int i = 0; i < NOFILE; i++)
+    if(p->ofile[i])
+      new_thread->ofile[i] = filedup(p->ofile[i]);
+  new_thread->cwd = idup(p->cwd);
 
-  new_thread->trap_va = va;
-  mappages(new_thread->pagetable, new_thread->trap_va, PGSIZE, (uint64)new_thread->trapframe, PTE_R | PTE_W);
+  safestrcpy(new_thread->name, p->name, sizeof(p->name));
+  
+  new_thread->state = RUNNABLE;
+
   release(&new_thread->lock);
   return new_thread->pid;
 }
 
 int join(void ** stack) {
-  return 0;
+  struct proc *np;
+  int havekids, pid;
+  struct proc *p = myproc();
+
+  acquire(&p->lock);
+
+  for (;;) {
+    havekids = 0;
+    for (np = proc; np < &proc[NPROC]; np++) {
+      if (np->type != THREAD) continue;
+
+      if(np->parent == p){
+        acquire(&np->lock);
+        havekids = 1;
+        if(np->state == ZOMBIE){
+          // Found one.
+          pid = np->pid;
+          if(copyout(np->pagetable, (uint64)(stack), (char*)&np->user_passin_stack,
+                                  sizeof(uint64)) < 0) { // TODO: understand why
+            release(&np->lock);
+            release(&p->lock);
+            return -1;
+          }
+          freeproc(np);
+          release(&np->lock);
+          release(&p->lock);
+          return pid;
+        }
+        release(&np->lock);
+      }
+    }
+
+     if(!havekids || p->killed){
+      release(&p->lock);
+      return -1;
+    }
+
+    sleep(p, &p->lock);
+  }
 }
