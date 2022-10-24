@@ -164,35 +164,20 @@ found:
 static void
 freeproc(struct proc *p)
 { 
-  // if (p->type == THREAD) {
-  //   uvmunmap(p->pagetable, p->trap_va, PGSIZE, 0);
-  //   p->trap_va = 0;
-  // }
-
-  // if(p->trapframe)
-  //   kfree((void*)p->trapframe);
-  // p->trapframe = 0;
-
-  // if(p->pagetable && p->type == PROCESS) {
-  //   proc_freepagetable(p->pagetable, p->sz);
-  //   p->pagetable = 0;
-  // }
-
-  // p->sz = 0;
-  // p->pid = 0;
-  // p->parent = 0;
-  // p->name[0] = 0;
-  // p->chan = 0;
-  // p->killed = 0;
-  // p->xstate = 0;
-  // p->state = UNUSED;
+  if (p->type == THREAD) {
+    uvmunmap(p->pagetable, p->trap_va, PGSIZE, 0);
+    p->trap_va = 0;
+  }
 
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
-  if(p->pagetable)
+
+  if(p->pagetable && p->type == PROCESS) {
     proc_freepagetable(p->pagetable, p->sz);
-  p->pagetable = 0;
+    p->pagetable = 0;
+  }
+
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -200,7 +185,7 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
-  p->state = UNUSED;
+  // p->state = UNUSED;
 }
 
 // Create a page table for a given process,
@@ -300,11 +285,28 @@ growproc(int n)
   for (np = proc; np < &proc[NPROC]; np++) {
     // TODO: understand what is going on here
     // acquire(&np->lock);
-    np->sz = sz;
+    if (np->pagetable == p->pagetable) {
+      np->sz = sz;
+    }
     // release(&np->lock);
   }
   release(&p->lock);
   return 0;
+
+  // uint sz;
+  // struct proc *p = myproc();
+
+  // sz = p->sz;
+  // if(n > 0){
+  //   if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+  //     return -1;
+  //   }
+  // } else if(n < 0){
+  //   sz = uvmdealloc(p->pagetable, sz, sz + n);
+  // }
+  // p->sz = sz;
+  // return 0;
+
 }
 
 // Create a new process, copying the parent.
@@ -392,18 +394,20 @@ exit(int status)
     panic("init exiting");
 
   // Close all open files.
-  for(int fd = 0; fd < NOFILE; fd++){
-    if(p->ofile[fd]){
-      struct file *f = p->ofile[fd];
-      fileclose(f);
-      p->ofile[fd] = 0;
+  if (p->type == PROCESS) {
+    for(int fd = 0; fd < NOFILE; fd++){
+      if(p->ofile[fd]){
+        struct file *f = p->ofile[fd];
+        fileclose(f);
+        p->ofile[fd] = 0;
+      }
     }
-  }
 
-  begin_op();
-  iput(p->cwd);
-  end_op();
-  p->cwd = 0;
+    begin_op();
+    iput(p->cwd);
+    end_op();
+    p->cwd = 0;
+  }
 
   // we might re-parent a child to init. we can't be precise about
   // waking up init, since we can't acquire its lock once we've
@@ -431,7 +435,9 @@ exit(int status)
   acquire(&p->lock);
 
   // Give any children to init.
-  reparent(p);
+  if (p->type == PROCESS) {
+    reparent(p);
+  }
 
   // Parent might be sleeping in wait().
   wakeup1(original_parent);
@@ -463,7 +469,7 @@ wait(uint64 addr)
     // Scan through table looking for exited children.
     havekids = 0;
     for(np = proc; np < &proc[NPROC]; np++){
-      // if (np->type != PROCESS) continue; // TODO: uncomment this
+      if (np->type != PROCESS) continue;
       // this code uses np->parent without holding np->lock.
       // acquiring the lock first would cause a deadlock,
       // since np might be an ancestor, and we already hold p->lock.
