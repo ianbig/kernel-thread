@@ -789,11 +789,11 @@ int clone(void(*fcn)(void*, void*), void *arg1, void *arg2, void *stack) {
   mappages(new_thread->pagetable, new_thread->trap_va, PGSIZE, 
           (uint64)(new_thread->trapframe), PTE_R | PTE_W);
 
-  if (p->parent->pagetable == p->pagetable) {
-    new_thread->parent = p->parent;
-  } else {
-    new_thread->parent = p;
+  struct proc * parent = p;
+  while (parent->type != PROCESS) {
+    parent = parent->parent;
   }
+  new_thread->parent = parent;
   
   *(new_thread->trapframe) = *(p->trapframe);
   new_thread->trapframe->epc = (uint64)fcn;
