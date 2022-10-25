@@ -292,21 +292,6 @@ growproc(int n)
   }
   release(&p->lock);
   return 0;
-
-  // uint sz;
-  // struct proc *p = myproc();
-
-  // sz = p->sz;
-  // if(n > 0){
-  //   if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
-  //     return -1;
-  //   }
-  // } else if(n < 0){
-  //   sz = uvmdealloc(p->pagetable, sz, sz + n);
-  // }
-  // p->sz = sz;
-  // return 0;
-
 }
 
 // Create a new process, copying the parent.
@@ -369,15 +354,19 @@ reparent(struct proc *p)
     // if pp or a child of pp were also in exit()
     // and about to try to lock p.
     if(pp->parent == p){
-      // pp->parent can't change between the check and the acquire()
-      // because only the parent changes it, and we're the parent.
-      acquire(&pp->lock);
-      pp->parent = initproc;
-      // we should wake up init here, but that would require
-      // initproc->lock, which would be a deadlock, since we hold
-      // the lock on one of init's children (pp). this is why
-      // exit() always wakes init (before acquiring any locks).
-      release(&pp->lock);
+      if (pp->type == PROCESS) {
+        // pp->parent can't change between the check and the acquire()
+        // because only the parent changes it, and we're the parent.
+        acquire(&pp->lock);
+        pp->parent = initproc;
+        // we should wake up init here, but that would require
+        // initproc->lock, which would be a deadlock, since we hold
+        // the lock on one of init's children (pp). this is why
+        // exit() always wakes init (before acquiring any locks).
+        release(&pp->lock);
+      } else {
+        freeproc(pp);
+      }
     }
   }
 }
@@ -433,6 +422,15 @@ exit(int status)
   acquire(&original_parent->lock);
 
   acquire(&p->lock);
+
+  //  if (p->type == PROCESS) {
+  //   struct proc *np;
+  //   for (np = proc; np < &proc[NPROC]; np++) {
+  //     if (np->type == THREAD && np->parent == p) {
+  //       freeproc(np);
+  //     }
+  //   } 
+  // } 
 
   // Give any children to init.
   if (p->type == PROCESS) {
@@ -790,8 +788,12 @@ int clone(void(*fcn)(void*, void*), void *arg1, void *arg2, void *stack) {
   }
   mappages(new_thread->pagetable, new_thread->trap_va, PGSIZE, 
           (uint64)(new_thread->trapframe), PTE_R | PTE_W);
-  // printf("trapframe: %x\n", new_thread->trapframe);
-  new_thread->parent = p;
+
+  if (p->parent->pagetable == p->pagetable) {
+    new_thread->parent = p->parent;
+  } else {
+    new_thread->parent = p;
+  }
   
   *(new_thread->trapframe) = *(p->trapframe);
   new_thread->trapframe->epc = (uint64)fcn;
