@@ -143,6 +143,8 @@ int thread_create(void (*start_routine)(void *, void *), void *arg1, void *arg2)
 int thread_join() {
   void * stack;
   int pid = join(&stack);
-  // free(stack); // TODO: error here
+  if (pid != -1) {
+    free(stack); // TODO: error here
+  }
   return pid;
 }

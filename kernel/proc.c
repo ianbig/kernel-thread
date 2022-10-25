@@ -185,7 +185,7 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
-  // p->state = UNUSED;
+  p->state = UNUSED;
 }
 
 // Create a page table for a given process,
@@ -795,7 +795,7 @@ int clone(void(*fcn)(void*, void*), void *arg1, void *arg2, void *stack) {
   
   *(new_thread->trapframe) = *(p->trapframe);
   new_thread->trapframe->epc = (uint64)fcn;
-  new_thread->trapframe->sp = PGROUNDDOWN((uint64)stack);
+  new_thread->trapframe->sp = ((uint64)stack + PGSIZE) & (~(8 - 1));
   new_thread->trapframe->a0 = (uint64)arg1;
   new_thread->trapframe->a1 = (uint64)arg2;
 
@@ -826,7 +826,7 @@ int join(void ** stack) {
     for (np = proc; np < &proc[NPROC]; np++) {
       if (np->type != THREAD) continue;
 
-      if(np->parent == p){
+       if(np->parent == p){
         acquire(&np->lock);
         havekids = 1;
         if(np->state == ZOMBIE){
