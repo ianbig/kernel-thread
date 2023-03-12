@@ -15,7 +15,8 @@
         "new": "c",
         "__mutex_base": "c",
         "atomic": "c",
-        "cstdio": "c"
+        "cstdio": "c",
+        "ratio": "c"
     },
     "C_Cpp.default.configurationProvider": "ms-vscode.makefile-tools"
 }

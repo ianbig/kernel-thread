@@ -423,15 +423,6 @@ exit(int status)
 
   acquire(&p->lock);
 
-  //  if (p->type == PROCESS) {
-  //   struct proc *np;
-  //   for (np = proc; np < &proc[NPROC]; np++) {
-  //     if (np->type == THREAD && np->parent == p) {
-  //       freeproc(np);
-  //     }
-  //   } 
-  // } 
-
   // Give any children to init.
   if (p->type == PROCESS) {
     reparent(p);
@@ -783,6 +774,11 @@ int clone(void(*fcn)(void*, void*), void *arg1, void *arg2, void *stack) {
   new_thread->pagetable = p->pagetable;
   new_thread->sz = p->sz;
   new_thread->trap_va = TRAPFRAME;
+  // find new va for thread trapframe
+  // Imagine two thread maps to same physical memroy for the trapframe
+  // Now thread A have a interrupt, it handle trap for a millisecond, then it yield CPU to thread B (it do not finish from trap handling)
+  // thread B have a system call, it then handle trap for a while, then yield the CPU to thread A before it is done with trap handling
+  // Now back to thread A with incorrect machine state, so we need to allocate space for thread in different phyiscal memory
   while (kwalkaddr(new_thread->pagetable, new_thread->trap_va)) {
     new_thread->trap_va -= PGSIZE;
   }
@@ -795,12 +791,14 @@ int clone(void(*fcn)(void*, void*), void *arg1, void *arg2, void *stack) {
   }
   new_thread->parent = parent;
   
+  // save valid machine for thread to return from trap
+  // new thread basically have the same state as p
+  // however, there are slightly different, epc, stack pointer, a0, a1
   *(new_thread->trapframe) = *(p->trapframe);
   new_thread->trapframe->epc = (uint64)fcn;
   new_thread->trapframe->sp = ((uint64)stack + PGSIZE) & (~(8 - 1));
   new_thread->trapframe->a0 = (uint64)arg1;
   new_thread->trapframe->a1 = (uint64)arg2;
-
   new_thread->user_passin_stack = stack;
 
   for(int i = 0; i < NOFILE; i++)
@@ -835,8 +833,7 @@ int join(void ** stack) {
           // Found one.
           pid = np->pid;
           if(copyout(np->pagetable, (uint64)(stack), (char*)&np->user_passin_stack,
-                                  sizeof(uint64)) < 0) { // TODO: understand why
-            release(&np->lock);
+                                  sizeof(uint64)) < 0) {
             release(&p->lock);
             return -1;
           }
